@@ -1,0 +1,13 @@
+{
+  "name": "cc-sounds",
+  "owner": {
+    "name": "Fergal7"
+  },
+  "plugins": [
+    {
+      "name": "cc-sounds",
+      "source": "./",
+      "description": "Windows notification sounds for Claude Code (finish / error / input-needed)."
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-NonInteractive",
+              "-WindowStyle",
+              "Hidden",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
+              "Alarm09.wav",
+              "0"
+            ]
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-NonInteractive",
+              "-WindowStyle",
+              "Hidden",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
+              "Ring02.wav",
+              "0"
+            ]
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-NonInteractive",
+              "-WindowStyle",
+              "Hidden",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
+              "Alarm04.wav"
+            ]
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "async": true,
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-NonInteractive",
+              "-WindowStyle",
+              "Hidden",
+              "-File",
+              "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
+              "Alarm04.wav"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

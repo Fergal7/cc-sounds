@@ -1,0 +1,14 @@
+{
+  "name": "cc-sounds",
+  "description": "Windows notification sounds for Claude Code: finish, error and input-needed alerts. Plays only when the terminal is in the background so it never interrupts active work.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Fergal7"
+  },
+  "keywords": [
+    "notifications",
+    "sound",
+    "hooks",
+    "windows"
+  ]
+}
