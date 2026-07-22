@@ -1,5 +1,6 @@
 {
   "name": "cc-sounds",
+  "description": "Notification sounds for Claude Code on Windows: distinct cues for task-complete, needs-input, and error, played only when the terminal is backgrounded.",
   "owner": {
     "name": "Fergal7"
   },
