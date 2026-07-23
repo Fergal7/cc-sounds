@@ -14,7 +14,8 @@
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
               "Alarm09.wav",
-              "0"
+              "0",
+              "completion"
             ]
           }
         ]
@@ -34,7 +35,8 @@
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
               "Ring02.wav",
-              "0"
+              "0",
+              "completion"
             ]
           }
         ]
@@ -54,7 +56,9 @@
               "Hidden",
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
-              "Alarm04.wav"
+              "Alarm04.wav",
+              "1500",
+              "input"
             ]
           }
         ]
@@ -74,7 +78,9 @@
               "Hidden",
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
-              "Alarm04.wav"
+              "Alarm04.wav",
+              "1500",
+              "input"
             ]
           }
         ]
