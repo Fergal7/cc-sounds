@@ -1,8 +1,9 @@
-# Plays a Windows media .wav for Claude Code hook notifications, but ONLY for
-# the ROOT interactive session -- the one the human started in a terminal -- and
-# only when that terminal is NOT the focused foreground window (minimized or in
-# the background). Keeps quiet while you are actively looking at the session, and
-# keeps quiet for spawned sub-sessions.
+# Plays a Windows media .wav for Claude Code hook notifications, and flashes the
+# terminal's taskbar button, but ONLY for the ROOT interactive session -- the one
+# the human started in a terminal -- and only when that terminal is NOT the
+# focused foreground window (minimized or in the background). Keeps quiet while
+# you are actively looking at the session, and keeps quiet for spawned
+# sub-sessions.
 #
 # Why the root-only rule: tools like second-opinion MCP servers launch a FULL
 # nested Claude Code session (often a different model) as a subprocess. Each
@@ -10,40 +11,35 @@
 # opinion would jingle. The root session's completion is the only "everything is
 # done" signal worth a sound -- when it finishes, the sub-sessions already have.
 #
-# Playback is capped at MaxMilliseconds because the stock Windows alarm wavs run
-# ~5s; a short clip is enough to notify without being annoying. Pass
-# MaxMilliseconds = 0 to play the wav in full (used for the finish sound, where
-# the turn has already ended so blocking costs nothing).
+# User settings live in ~/.claude/cc-sounds.json (see cc-sounds-config.ps1 and
+# the /cc-sounds slash command): master mute, per-event enable/disable, a custom
+# sound per event, and a taskbar-flash toggle. Missing/!invalid config falls back
+# to built-in defaults, so the hook never breaks on a bad file.
 #
-# Env overrides:
+# Env overrides (per-instance, win over config):
 #   CC_SOUNDS_DISABLE  - set to anything to force silence for this instance.
-#   CC_SOUNDS_DEBUG    - print the decision (and why) to stderr, skip playback.
+#   CC_SOUNDS_DEBUG    - print the decision (and why) to stderr, skip play+flash.
 #
-# EventClass controls how nested (spawned sub-)sessions are treated:
-#   'completion' (Stop / StopFailure) - a sub-session finishing is noise; the
-#                 root session's own completion is the only "done" worth a sound.
-#                 Nested completion => silent.
-#   'input'      (PermissionRequest / Elicitation) - a sub-session BLOCKED on
-#                 human input still deserves a ping even when nested, because a
-#                 human must act. Nested input => falls through to the normal
-#                 terminal foreground/background test (silent only if you are
-#                 already looking at the terminal).
-# (The second-opinion MCP runs its sub-sessions with permissionMode
-# 'bypassPermissions', so they never raise input events -- but other nested-
-# claude tools might, and this keeps their prompts audible.)
+# Event classes (derived from EventName) control nested-session handling:
+#   completion (Stop / StopFailure) - a sub-session finishing is noise => silent.
+#   input      (PermissionRequest / Elicitation) - a sub-session blocked on human
+#              input still pings even when nested (falls through to the terminal
+#              foreground/background test).
 #
-# Usage: play-if-background.ps1 <WavFileName> [MaxMilliseconds] [EventClass]
-#        e.g. play-if-background.ps1 Alarm04.wav 2000 input
+# Usage: play-if-background.ps1 <EventName> <DefaultWav> [MaxMilliseconds]
+#        e.g. play-if-background.ps1 PermissionRequest Alarm04.wav 2000
 param(
+    [string]$EventName,
     [string]$WavFileName,
-    [int]$MaxMilliseconds = 2000,
-    [ValidateSet('completion','input')]
-    [string]$EventClass = 'completion'
+    [int]$MaxMilliseconds = 2000
 )
+
+# completion events finish silently when nested; input events still ping.
+$eventClass = if ($EventName -in @('Stop','StopFailure')) { 'completion' } else { 'input' }
 
 function Write-Decision([bool]$shouldPlay, [string]$reason) {
     if ($env:CC_SOUNDS_DEBUG) {
-        $line = "cc-sounds: pid=$PID claudePid=$env:CLAUDE_PID wav=$WavFileName shouldPlay=$shouldPlay reason=$reason"
+        $line = "cc-sounds: pid=$PID claudePid=$env:CLAUDE_PID event=$EventName wav=$WavFileName shouldPlay=$shouldPlay reason=$reason"
         [Console]::Error.WriteLine($line)
         # Also append to a log file, so decisions from NESTED sessions (whose
         # stderr the user never sees) can be inspected after a test run.
@@ -51,20 +47,72 @@ function Write-Decision([bool]$shouldPlay, [string]$reason) {
     }
 }
 
-# Explicit opt-out and remote/cloud sessions (no local terminal to notify).
-if ($env:CC_SOUNDS_DISABLE)          { Write-Decision $false 'CC_SOUNDS_DISABLE'; return }
+# ── User config (~/.claude/cc-sounds.json) ─────────────────────────────
+# Shape: { muted:bool, flash:bool, events:{ <EventName>:{ enabled:bool, sound:str } } }
+# `sound` is either a bare Windows Media filename (resolved under WINDIR\Media) or
+# an absolute path to a custom .wav.
+$flashEnabled = $true
+$eventEnabled = $true
+$configSound  = $null
+try {
+    $configPath = Join-Path $env:USERPROFILE '.claude\cc-sounds.json'
+    if (Test-Path $configPath) {
+        $cfg = Get-Content -Raw $configPath | ConvertFrom-Json
+        if ($cfg.PSObject.Properties.Name -contains 'muted' -and $cfg.muted) {
+            Write-Decision $false 'muted-by-config'; return
+        }
+        if ($cfg.PSObject.Properties.Name -contains 'flash') { $flashEnabled = [bool]$cfg.flash }
+        $evCfg = $null
+        if ($cfg.events -and ($cfg.events.PSObject.Properties.Name -contains $EventName)) {
+            $evCfg = $cfg.events.$EventName
+        }
+        if ($evCfg) {
+            if ($evCfg.PSObject.Properties.Name -contains 'enabled') { $eventEnabled = [bool]$evCfg.enabled }
+            if ($evCfg.PSObject.Properties.Name -contains 'sound' -and $evCfg.sound) { $configSound = [string]$evCfg.sound }
+        }
+    }
+} catch { }  # malformed config => fall back to defaults, never break the hook
+
+if (-not $eventEnabled) { Write-Decision $false 'event-disabled-by-config'; return }
+
+# Explicit per-instance opt-out and remote/cloud sessions (no local terminal).
+if ($env:CC_SOUNDS_DISABLE)             { Write-Decision $false 'CC_SOUNDS_DISABLE'; return }
 if ($env:CLAUDE_CODE_REMOTE -eq 'true') { Write-Decision $false 'CLAUDE_CODE_REMOTE'; return }
 
-$mediaPath = Join-Path $env:WINDIR "Media\$WavFileName"
-if (-not (Test-Path $mediaPath)) { Write-Decision $false 'wav-not-found'; return }
+# Resolve the sound file: config override (absolute path or Media name) else the
+# default wav passed by the hook.
+$soundName = if ($configSound) { $configSound } else { $WavFileName }
+if ([System.IO.Path]::IsPathRooted($soundName)) {
+    $mediaPath = $soundName
+} else {
+    $mediaPath = Join-Path $env:WINDIR "Media\$soundName"
+}
+if (-not (Test-Path $mediaPath)) { Write-Decision $false "wav-not-found:$mediaPath"; return }
 
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class ForegroundWindowNative
+public static class Win32Notify
 {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FLASHWINFO {
+        public uint cbSize; public IntPtr hwnd; public uint dwFlags;
+        public uint uCount; public uint dwTimeout;
+    }
+    [DllImport("user32.dll")] public static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+    // FLASHW_ALL (3) | FLASHW_TIMERNOFG (12) = flash caption + taskbar until the
+    // window is brought to the foreground. So the pinging terminal keeps pulsing
+    // until you click it -- the "which of my 8 terminals" signal.
+    public static void FlashUntilFocused(IntPtr hwnd) {
+        FLASHWINFO fi = new FLASHWINFO();
+        fi.cbSize = (uint)Marshal.SizeOf(typeof(FLASHWINFO));
+        fi.hwnd = hwnd; fi.dwFlags = 15; fi.uCount = uint.MaxValue; fi.dwTimeout = 0;
+        FlashWindowEx(ref fi);
+    }
 }
 "@
 
@@ -108,9 +156,6 @@ if ($env:CLAUDE_PID -and ($env:CLAUDE_PID -as [int])) {
 #   (B) Count claude.exe processes in this hook's own ancestry. Root hook sees
 #       exactly one (root); a nested hook sees two (child + root). Robust even if
 #       CLAUDE_PID was inherited, provided the child runs as claude.exe.
-# Between them, the only unhandled case is "child is node.exe AND CLAUDE_PID was
-# inherited from root" -- which the CC_SOUNDS_DEBUG probe below will reveal on a
-# real run.
 $isNested = $false
 if ($ownerClaudePid -gt 0 -and $procById.ContainsKey($ownerClaudePid)) {
     $probe = $procById[$ownerClaudePid].Parent
@@ -137,7 +182,7 @@ if ($claudeAncestors -ge 2) { $isNested = $true }
 # Nested completion events are pure noise -> silent. Nested INPUT events mean a
 # sub-session is blocked waiting on a human, so let them fall through to the
 # normal terminal test below (they still stay quiet if you are looking at it).
-if ($isNested -and $EventClass -eq 'completion') {
+if ($isNested -and $eventClass -eq 'completion') {
     Write-Decision $false "nested-claude-session (owner=$ownerClaudePid claudeAncestors=$claudeAncestors)"
     return
 }
@@ -163,14 +208,18 @@ for ($hop = 0; $hop -lt 12; $hop++) {
 # focused, non-minimized foreground window.
 if ($terminalWindowHandle -eq [IntPtr]::Zero) { Write-Decision $false 'no-terminal-window'; return }
 
-$foregroundWindowHandle = [ForegroundWindowNative]::GetForegroundWindow()
-$isMinimized = [ForegroundWindowNative]::IsIconic($terminalWindowHandle)
+$foregroundWindowHandle = [Win32Notify]::GetForegroundWindow()
+$isMinimized = [Win32Notify]::IsIconic($terminalWindowHandle)
 $isForeground = ($foregroundWindowHandle -eq $terminalWindowHandle -and -not $isMinimized)
 
 if ($isForeground) { Write-Decision $false 'terminal-foreground'; return }
 
 Write-Decision $true 'terminal-background'
 if ($env:CC_SOUNDS_DEBUG) { return }
+
+# Flash the taskbar first (only when a sound would play), so after un-minimizing
+# a wall of terminals you can see which one pinged.
+if ($flashEnabled) { [Win32Notify]::FlashUntilFocused($terminalWindowHandle) }
 
 $player = New-Object Media.SoundPlayer $mediaPath
 if ($MaxMilliseconds -le 0) {
