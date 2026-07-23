@@ -7,5 +7,6 @@ powershell -NoProfile -File "${CLAUDE_PLUGIN_ROOT}/scripts/cc-sounds-config.ps1"
 
 Then summarise the resulting settings in one or two lines: master mute state, taskbar flash state, and any per-event enable/disable or custom-sound change. If the helper printed a line starting with `ERROR:`, show it verbatim along with the correct usage.
 
+Commands: status | mute | unmute | flash on|off | event <Name> on|off | sound <Name> <wav> | reset
 Valid events: Stop, StopFailure, PermissionRequest, Elicitation.
-Examples: `/cc-sounds mute`, `/cc-sounds unmute`, `/cc-sounds flash off`, `/cc-sounds event Stop off`, `/cc-sounds sound Stop tada.wav`, `/cc-sounds reset`."""
+Examples: `/cc-sounds mute`, `/cc-sounds flash off`, `/cc-sounds event Stop off`, `/cc-sounds sound Stop tada.wav`, `/cc-sounds reset`."""

@@ -91,6 +91,8 @@ if (-not (Test-Path $mediaPath)) { Write-Decision $false "wav-not-found:$mediaPa
 
 Add-Type @"
 using System;
+using System.Text;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class Win32Notify
 {
@@ -112,6 +114,36 @@ public static class Win32Notify
         fi.cbSize = (uint)Marshal.SizeOf(typeof(FLASHWINFO));
         fi.hwnd = hwnd; fi.dwFlags = 15; fi.uCount = uint.MaxValue; fi.dwTimeout = 0;
         FlashWindowEx(ref fi);
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr p);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] private static extern int GetWindowTextLength(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr h, StringBuilder s, int max);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+
+    // Find the top-level window owned by one of `pids` (the VS Code processes)
+    // whose title contains `titleContains` (the workspace folder name). Electron
+    // shares one main process across windows, so Process.MainWindowHandle is
+    // unreliable; enumerating by title is the only way to hit the RIGHT window.
+    public static IntPtr FindWindowByPidsAndTitle(int[] pids, string titleContains) {
+        HashSet<int> set = new HashSet<int>(pids);
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            if (!IsWindowVisible(h)) return true;
+            uint wpid; GetWindowThreadProcessId(h, out wpid);
+            if (!set.Contains((int)wpid)) return true;
+            int len = GetWindowTextLength(h);
+            if (len <= 0) return true;
+            StringBuilder sb = new StringBuilder(len + 1);
+            GetWindowText(h, sb, sb.Capacity);
+            if (sb.ToString().IndexOf(titleContains, StringComparison.OrdinalIgnoreCase) >= 0) {
+                found = h; return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
     }
 }
 "@
@@ -187,20 +219,68 @@ if ($isNested -and $eventClass -eq 'completion') {
     return
 }
 
-# Find the terminal window that hosts this hook: the first ancestor that exposes
-# a real MainWindowHandle. The hook itself runs windowless.
-$terminalWindowHandle = [IntPtr]::Zero
-$walkProcessId = $PID
-for ($hop = 0; $hop -lt 12; $hop++) {
-    $candidate = Get-Process -Id $walkProcessId -ErrorAction SilentlyContinue
-    if ($candidate -and $candidate.MainWindowHandle -ne [IntPtr]::Zero) {
-        $terminalWindowHandle = $candidate.MainWindowHandle
-        break
+# Find the terminal window that hosts this hook.
+#
+# VS Code (Electron) shares ONE main Code.exe process across every window, and
+# .NET Process.MainWindowHandle exposes only a single (often wrong) window for
+# it -- so the ancestor walk would flash whichever VS Code window Windows calls
+# "main", not the one hosting this terminal. When VS Code hosts us, disambiguate
+# by matching the window whose TITLE contains this session's workspace folder.
+# Standard terminals (Windows Terminal, conhost, pwsh) fall back to the ancestor
+# MainWindowHandle walk, which is correct there.
+
+# Workspace folder name: from the hook's stdin JSON (cwd), else current dir.
+$workspaceLeaf = ''
+try {
+    if ([Console]::IsInputRedirected) {
+        $hookJson = [Console]::In.ReadToEnd()
+        if ($hookJson) {
+            $hookObj = $hookJson | ConvertFrom-Json
+            if ($hookObj.cwd) { $workspaceLeaf = Split-Path -Leaf ([string]$hookObj.cwd) }
+        }
     }
-    $info = $procById[$walkProcessId]
+} catch { }
+if (-not $workspaceLeaf) { try { $workspaceLeaf = Split-Path -Leaf (Get-Location).Path } catch { } }
+
+# Are we hosted by VS Code? (any code.exe ancestor)
+$inVSCode = $false
+$probe = $PID
+for ($hop = 0; $hop -lt 16; $hop++) {
+    $info = $procById[$probe]
     if (-not $info) { break }
-    $walkProcessId = $info.Parent
-    if ($walkProcessId -le 0) { break }
+    if ($info.Name -eq 'code.exe') { $inVSCode = $true; break }
+    $probe = $info.Parent
+    if ($probe -le 0) { break }
+}
+
+$terminalWindowHandle = [IntPtr]::Zero
+$handleSource = 'none'
+
+if ($inVSCode -and $workspaceLeaf) {
+    $codePids = @()
+    foreach ($k in $procById.Keys) { if ($procById[$k].Name -eq 'code.exe') { $codePids += [int]$k } }
+    if ($codePids.Count -gt 0) {
+        $terminalWindowHandle = [Win32Notify]::FindWindowByPidsAndTitle([int[]]$codePids, $workspaceLeaf)
+        if ($terminalWindowHandle -ne [IntPtr]::Zero) { $handleSource = "vscode-title:$workspaceLeaf" }
+    }
+}
+
+# Fallback: first ancestor exposing a real MainWindowHandle (non-VSCode, or a
+# VS Code title miss e.g. a customised window.title).
+if ($terminalWindowHandle -eq [IntPtr]::Zero) {
+    $walkProcessId = $PID
+    for ($hop = 0; $hop -lt 12; $hop++) {
+        $candidate = Get-Process -Id $walkProcessId -ErrorAction SilentlyContinue
+        if ($candidate -and $candidate.MainWindowHandle -ne [IntPtr]::Zero) {
+            $terminalWindowHandle = $candidate.MainWindowHandle
+            $handleSource = 'ancestor-walk'
+            break
+        }
+        $info = $procById[$walkProcessId]
+        if (-not $info) { break }
+        $walkProcessId = $info.Parent
+        if ($walkProcessId -le 0) { break }
+    }
 }
 
 # No owning terminal window => headless (claude -p / SDK / CI). Nobody is
@@ -212,13 +292,13 @@ $foregroundWindowHandle = [Win32Notify]::GetForegroundWindow()
 $isMinimized = [Win32Notify]::IsIconic($terminalWindowHandle)
 $isForeground = ($foregroundWindowHandle -eq $terminalWindowHandle -and -not $isMinimized)
 
-if ($isForeground) { Write-Decision $false 'terminal-foreground'; return }
+if ($isForeground) { Write-Decision $false "terminal-foreground (via $handleSource)"; return }
 
-Write-Decision $true 'terminal-background'
+Write-Decision $true "terminal-background (via $handleSource)"
 if ($env:CC_SOUNDS_DEBUG) { return }
 
-# Flash the taskbar first (only when a sound would play), so after un-minimizing
-# a wall of terminals you can see which one pinged.
+# Flash the taskbar (only when a sound would play), so after un-minimizing a wall
+# of terminals you can see which one pinged.
 if ($flashEnabled) { [Win32Notify]::FlashUntilFocused($terminalWindowHandle) }
 
 $player = New-Object Media.SoundPlayer $mediaPath

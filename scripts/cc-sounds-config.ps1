@@ -17,8 +17,8 @@ $validEvents = @('Stop','StopFailure','PermissionRequest','Elicitation')
 
 function New-DefaultConfig {
     [ordered]@{
-        muted  = $false
-        flash  = $true
+        muted = $false
+        flash = $true
         events = [ordered]@{
             Stop              = [ordered]@{ enabled = $true; sound = 'Alarm09.wav' }
             StopFailure       = [ordered]@{ enabled = $true; sound = 'Ring02.wav' }
