@@ -57,7 +57,7 @@
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
               "Alarm04.wav",
-              "1500",
+              "2000",
               "input"
             ]
           }
@@ -79,7 +79,7 @@
               "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
               "Alarm04.wav",
-              "1500",
+              "2000",
               "input"
             ]
           }

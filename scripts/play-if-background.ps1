@@ -33,10 +33,10 @@
 # claude tools might, and this keeps their prompts audible.)
 #
 # Usage: play-if-background.ps1 <WavFileName> [MaxMilliseconds] [EventClass]
-#        e.g. play-if-background.ps1 Alarm04.wav 1500 input
+#        e.g. play-if-background.ps1 Alarm04.wav 2000 input
 param(
     [string]$WavFileName,
-    [int]$MaxMilliseconds = 1500,
+    [int]$MaxMilliseconds = 2000,
     [ValidateSet('completion','input')]
     [string]$EventClass = 'completion'
 )
