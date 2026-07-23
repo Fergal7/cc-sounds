@@ -7,14 +7,9 @@
             "type": "command",
             "command": "powershell",
             "args": [
-              "-NoProfile",
-              "-NonInteractive",
-              "-WindowStyle",
-              "Hidden",
-              "-File",
+              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
-              "Alarm09.wav",
-              "0"
+              "Stop", "Alarm09.wav", "0"
             ]
           }
         ]
@@ -27,14 +22,9 @@
             "type": "command",
             "command": "powershell",
             "args": [
-              "-NoProfile",
-              "-NonInteractive",
-              "-WindowStyle",
-              "Hidden",
-              "-File",
+              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
-              "Ring02.wav",
-              "0"
+              "StopFailure", "Ring02.wav", "0"
             ]
           }
         ]
@@ -48,13 +38,9 @@
             "async": true,
             "command": "powershell",
             "args": [
-              "-NoProfile",
-              "-NonInteractive",
-              "-WindowStyle",
-              "Hidden",
-              "-File",
+              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
-              "Alarm04.wav"
+              "PermissionRequest", "Alarm04.wav", "2000"
             ]
           }
         ]
@@ -68,13 +54,9 @@
             "async": true,
             "command": "powershell",
             "args": [
-              "-NoProfile",
-              "-NonInteractive",
-              "-WindowStyle",
-              "Hidden",
-              "-File",
+              "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-File",
               "${CLAUDE_PLUGIN_ROOT}/scripts/play-if-background.ps1",
-              "Alarm04.wav"
+              "Elicitation", "Alarm04.wav", "2000"
             ]
           }
         ]
